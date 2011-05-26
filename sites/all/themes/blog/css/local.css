@@ -1,0 +1,60 @@
+/* MAIN BLOG VIEW CSS
+********************************* */
+
+/*Add margin top and bottom to each blog post on the <front> page*/
+
+#view-id-blog-page_1 .views-row{
+margin: 40px 0;
+}
+
+#view-id-blog-page_1 .views-row-first{
+margin-top: 0;
+}
+
+#view-id-blog-page_1 h2.title{
+font-size: 21px;
+font-weight: normal;
+text-transform: capitalize;
+}
+
+
+/* BLOG POST IMAGE GALLERY
+************************************ */
+.view-blog-image-gallery table{
+table-layout: fixed;
+}
+
+.view-blog-image-gallery table tr td.col-1{
+padding: 0;
+width: 160px;
+}
+
+.view-blog-image-gallery table tr td.col-2{
+padding: 0;
+width: 140px;
+}
+
+
+/* BLOG POST AUTHOR ATTACHMENT 
+************************************ */
+.view-blog-bio-attachment{
+margin: 40px 0;
+}
+
+.view-blog-bio-attachment .field-field-blogger-profile-picture,
+.node-type-blogger_profile .field-field-blogger-profile-picture{
+float: left;
+margin: 0 20px 20px 0;
+width: auto;
+}
+
+.view-blog-bio-attachment div.content p{
+font-size: 12px;
+}
+
+.view-blog-bio-attachment div.content p,
+.view-blog-bio-attachment div.links {
+float: left;
+margin-top: 0;
+width: 460px;
+}
