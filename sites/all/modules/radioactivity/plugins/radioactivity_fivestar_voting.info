@@ -1,0 +1,14 @@
+; $Id: radioactivity_fivestar_voting.info,v 1.1.2.1 2010/01/24 20:35:33 skiminki Exp $
+name = Radioactive Fivestar
+description = "VotingAPI fivestar support for radioactive nodes and comments. Supports setting different energy values for one through five star votes."
+dependencies[] = radioactivity
+dependencies[] = votingapi
+package = Radioactivity
+core = 6.x
+
+; Information added by drupal.org packaging script on 2010-06-28
+version = "6.x-1.3"
+core = "6.x"
+project = "radioactivity"
+datestamp = "1277731515"
+

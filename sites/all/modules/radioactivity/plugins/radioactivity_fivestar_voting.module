@@ -1,0 +1,73 @@
+<?php
+// $Id: radioactivity_fivestar_voting.module,v 1.1.2.2 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Fivestar voting support for radioactivity
+ */
+
+/**
+ * Implement hook_help().
+ *
+ */
+function radioactivity_fivestar_voting_help($path, $arg) {
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity_fivestar_voting":
+      $output = '<p>'.  t("VotingAPI vote Fivestar support for radioactivity. Provides adding energy based ".
+                          "on how many stars the vote was.") .'</p>';
+      break;
+  }
+
+  return $output;
+}
+
+/**
+ * Implement hook_radioactivity_info().
+ */
+function radioactivity_fivestar_voting_radioactivity_info() {
+  return array('sources' => array('node' =>
+                                  array('one_star' => array('title_placeholder' => 'one star'),
+                                        'two_stars' => array('title_placeholder' => 'two stars'),
+                                        'three_stars' => array('title_placeholder' => 'three stars'),
+                                        'four_stars' => array('title_placeholder' => 'four stars'),
+                                        'five_stars' => array('title_placeholder' => 'five stars'),
+                                  ),
+               ));
+}
+
+/**
+ * Implement hook_votingapi_insert().
+ */
+function radioactivity_fivestar_voting_votingapi_insert($votes) {
+  require_once drupal_get_path('module', 'radioactivity') .'/radioactivity.inc';
+
+  foreach ($votes as $vote) {
+    $oclass = $vote['content_type'];
+    $oid = $vote['content_id'];
+    $value = $vote['value'];
+
+    switch ($oclass) {
+      case 'node':
+      case 'comment':
+        switch ($value) {
+          case 20:
+            radioactivity_add_energy($oid, $oclass, 'one_star');
+            break;
+          case 40:
+            radioactivity_add_energy($oid, $oclass, 'two_stars');
+            break;
+          case 60:
+            radioactivity_add_energy($oid, $oclass, 'three_stars');
+            break;
+          case 80:
+            radioactivity_add_energy($oid, $oclass, 'four_stars');
+            break;
+          case 100:
+            radioactivity_add_energy($oid, $oclass, 'five_stars');
+            break;
+        }
+        break;
+    }
+  }
+}

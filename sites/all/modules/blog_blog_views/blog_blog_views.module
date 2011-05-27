@@ -1,0 +1,3 @@
+<?php
+
+include_once('blog_blog_views.features.inc');

@@ -1,0 +1,173 @@
+<?php
+// $Id: radioactivity_debug.module,v 1.2.4.4 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file Debugging support for radioactivity
+ */
+
+function radioactivity_debug_help($section='') {
+
+  $output = '';
+
+  switch ($section) {
+    case "admin/help#radioactivity_debug":
+      $output = '<p>'.  t("Debug support for radioactivity. TODO");
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_debug_menu() {
+  $items=array();
+  $items['admin/debug/radioactivity']=
+    array('title' => 'Debug radioactivity',
+          'description' => 'Radioactivity debugging UI',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_debug_info_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'type'    => MENU_NORMAL_ITEM);
+  $items['admin/debug/radioactivity/info']=
+    array('title' => 'Radioactivity info struct',
+          'description' => 'Debug view of radioactivity info struct as retrieved by '.
+                           '<code>radioactivity_get_radioactivity_info()</code> and '.
+                           '<code>radioactivity_get_decay_profiles()</code>.',
+          'page arguments'  => array('radioactivity_debug_add_energy_form'),
+          'access arguments' => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 0,
+          'type'    => MENU_DEFAULT_LOCAL_TASK);
+  $items['admin/debug/radioactivity/add_energy']=
+    array('title' => 'Add energy',
+          'description' => 'Add energy to arbitrary radioactive object.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_debug_add_energy_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 1,
+          'type'    => MENU_LOCAL_TASK);
+  $items['admin/debug/radioactivity/memcache']=
+    array('title' => 'Memcache acceleration',
+          'description' => 'Show pending updates in memcache.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_debug_memcache_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 1,
+          'type'    => MENU_LOCAL_TASK);  
+  return $items;
+}
+
+function radioactivity_debug_info_form() {
+  $form=array();
+
+  $info=radioactivity_get_radioactivity_info();
+
+  $form['radioactivity_info_array']=
+    array('#type' => 'item',
+          '#title' => 'Radioactivity info struct',
+          '#value' => '<pre>'. check_plain(print_r($info, TRUE)) .'</pre>');
+
+  $form['radioactivity_profiles']=
+    array('#type' => 'item',
+          '#title' => 'Radioactivity profiles',
+          '#value' => '<pre>'. check_plain(var_export(radioactivity_get_decay_profiles(), TRUE)) .'</pre>');
+
+  return $form;
+}
+
+function radioactivity_debug_add_energy_form() {
+  $form=array();
+
+  $radioactivity_info=radioactivity_get_radioactivity_info();
+
+  foreach ($radioactivity_info['targets'] as $oclass => $target_info) {
+    $form[$oclass]=
+      array('#type' => 'fieldset',
+            '#tree' => TRUE,
+            '#title' => t('Actions for @oclass', array('@oclass' => $oclass)));
+
+    $form[$oclass]['id']=
+      array('#type' => 'textfield',
+            '#title' => t('@oclass id', array('@oclass' => $oclass)),
+            '#size' => 11,
+            '#description' => t('Id of the object to receive actions.'));
+
+    // actions
+    $options=array();
+    foreach ($radioactivity_info['sources'][$oclass] as $source => $source_info) {
+      $options[$source] = $source_info['title_placeholder'];
+    }
+    $form[$oclass]['actions']=
+      array('#type' => 'checkboxes',
+            '#title' => t('Energy actions'),
+            '#description' => t('Id of the object to receive actions.'),
+            '#default_value' => array(),
+            '#options' => $options);
+
+  }
+
+  $form['submit']=
+    array('#type' => 'submit',
+          '#value' => t('Execute actions'));
+
+  return $form;
+}
+
+function radioactivity_debug_add_energy_form_submit($form_id, $form) {
+  $radioactivity_info=radioactivity_get_radioactivity_info();
+  $form_values=$form['values'];
+  foreach ($radioactivity_info['targets'] as $oclass => $target_info) {
+    $oid=$form_values[$oclass]['id'];
+
+    if (!$oid) continue; // no object id, don't execute actions
+
+    foreach ($form_values[$oclass]['actions'] as $source => $action_value) {
+      if ($action_value) {
+        $energy=print_r(radioactivity_get_energies_for_source($oid, $oclass, $source), TRUE);
+        drupal_set_message(t('Executing action %action for @oclass:@oid. This gives %energy energies to '.
+                             'different decay profiles.',
+                             array('%action' => $source,
+                                   '@oclass' => $oclass,
+                                   '@oid' => $oid,
+                                   '%energy' => $energy)));
+        radioactivity_add_energy($oid, $oclass, $source);
+      }
+    }
+  }  
+}
+
+function radioactivity_debug_memcache_form() {
+  $form=array();
+  if (!radioactivity_get_memcached_enable()) {
+    $form['status']=
+      array('#value' => t('Memcache acceleration not enabled'));
+    return $form;
+  }
+
+  list($start_entry_id, $stop_entry_id)=radioactivity_memcache_get_unprocessed_range();
+
+  $form['range']=
+    array('#type' => 'item',
+          '#title' => t('Entry range'),
+          '#value' => '['. $start_entry_id .', '. $stop_entry_id .')');
+
+  $combined=radioactivity_group_memcache_entries($start_entry_id, $stop_entry_id);
+
+  $rows=array();
+  foreach ($combined as $oid => $rest1) {
+    foreach ($rest1 as $oclass => $rest2) {
+      foreach ($rest2 as $source => $times) {
+        $rows[]=array($oclass .':'. $oid, $source, $times);
+      }
+    }
+  }
+
+  if (!count($rows)) {
+    $rows[]=array('data' => array(array('data' => t('No data'), 'colspan' => 3)));
+  }
+
+  $form['combined']=
+    array('#type' => 'item',
+          '#title' => t('Pending energy events'),
+          '#value' => theme_table(array('Object', 'Source', 'Multiplier'),
+                                  $rows));
+
+  return $form;
+}

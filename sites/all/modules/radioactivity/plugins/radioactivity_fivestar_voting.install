@@ -1,0 +1,20 @@
+<?php
+// $Id: radioactivity_fivestar_voting.install,v 1.1.2.2 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Radioactivity fivestar voting install hooks
+ */
+
+/**
+ * Implement hook_install().
+ */
+function radioactivity_fivestar_voting_install() {
+  // nothing required
+}
+
+/**
+ * Implement hook_uninstall().
+ */
+function radioactivity_fivestar_voting_uninstall() {
+  // nothing required
+}

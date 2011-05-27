@@ -1,0 +1,13 @@
+<?php
+// $Id: radioactivity_up_down_voting.install,v 1.1.4.1 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Radioactivity up-down install hooks
+ */
+function radioactivity_up_down_voting_install() {
+  // nothing required
+}
+
+function radioactivity_up_down_voting_uninstall() {
+  // nothing required
+}

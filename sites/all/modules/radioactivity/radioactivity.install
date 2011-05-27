@@ -1,0 +1,51 @@
+<?php
+// $Id: radioactivity.install,v 1.4.4.2 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Radioactivity core db schema and install hooks.
+ */
+
+function radioactivity_schema() {
+  $schema=array();
+  $schema['radioactivity']=
+    array('description' => t('The table for energy information on various radioactive objects'),
+          'fields' =>
+          array('id' => array('type' => 'int',
+                              'unsigned' => TRUE,
+                              'not null' => TRUE,
+                              'default' => 0,
+                              'description' => t('The object identifier. Nid for nodes, cid for comments, uid for users, etc')),
+                'class' => array('type' => 'varchar',
+                                 'length' => 7,
+                                 'not null' => TRUE,
+                                 'default' => '',
+                                 'description' => t('The object class. node, comment, user, etc')),
+                'decay_profile' => array('type' => 'int',
+                                         'unsigned' => TRUE,
+                                         'not null' => TRUE,
+                                         'default' => 0,
+                                         'description' => t('The decay profile id')),
+                'energy' => array('type' => 'float',
+                                  'size' => 'big',
+                                  'not null' => TRUE,
+                                  'default' => 0,
+                                  'description' => t('The object energy, i.e., the amount of radioactivity')),
+                'last_emission_timestamp' => array('type' => 'int',
+                                                   'unsigned' => TRUE,
+                                                   'not null' => TRUE,
+                                                   'default' => 0,
+                                                   'description' => t('The moment when the energy reduction was last performed. Unix timestamp.'))),
+          'primary key' => array('id', 'class', 'decay_profile'),
+          'indexes' => array('radioactivity_ix_energy' => array('energy'))
+    );
+
+  return $schema;
+}
+
+function radioactivity_install() {
+  drupal_install_schema('radioactivity');
+}
+
+function radioactivity_uninstall() {
+  drupal_uninstall_schema('radioactivity');
+}

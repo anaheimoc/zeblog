@@ -1,0 +1,49 @@
+<?php
+// $Id: radioactivity_up_down_voting.module,v 1.2.4.3 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Up/down voting support for radioactivity
+ */
+
+function radioactivity_up_down_voting_help($path, $arg) {
+
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity_up_down_voting":
+      $output = '<p>'.  t("VotingAPI vote up/down support for radioactivity. Provides adding energy based ".
+                          "on whether the vote was positive (vote up) or negative (vote down). This can be used to provide node or comment <em>hotness</em> ".
+                          "metrics based on user feedback.") .'</p>';
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_up_down_voting_radioactivity_info() {
+  return array('sources' => array('node' =>
+                                  array('vote_up' => array('title_placeholder' => 'vote up'), 'vote_down' => array('title_placeholder' => 'vote down')),
+                                  'comment' =>
+                                  array('vote_up' => array('title_placeholder' => 'vote up'), 'vote_down' => array('title_placeholder' => 'vote down'))));
+}
+
+function radioactivity_up_down_voting_votingapi_insert($votes) {
+  require_once drupal_get_path('module', 'radioactivity') .'/radioactivity.inc';
+
+  foreach ($votes as $vote) {
+    $oclass=$vote['content_type'];
+    $oid=$vote['content_id'];
+    $value=$vote['value'];
+
+    switch ($oclass) {
+      case 'node':
+      case 'comment':
+        if ($value>0) {
+          radioactivity_add_energy($oid, $oclass, 'vote_up');
+        }
+        elseif ($value<0) {
+          radioactivity_add_energy($oid, $oclass, 'vote_down');
+        }
+    }
+  }
+}

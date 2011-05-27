@@ -1,0 +1,172 @@
+<?php
+// $Id: radioactivity_node.test,v 1.1.2.3 2010/01/24 21:38:51 skiminki Exp $
+
+class RadioactivityNodeTestCase extends DrupalWebTestCase {
+
+  static function getInfo() {
+    return array('name' => t('Radioactivity Node-plugin tests'),
+      'description' => t('Some regression tests for Radioactivity Node plugin.'),
+      'group' => t('Radioactivity'),
+    );
+  }
+
+  function setUp() {
+    parent::setUp('comment', 'radioactivity', 'radioactivity_node');
+
+    // setup a profile
+    $profiles=
+      array(1 => array('label' => 'profile1',
+                       'description' => '',
+                       'half_life' => 21600,
+                       'cut_off_energy' => 0.5,
+                       'energy' => array('node' => array('view' => 1,
+                                                         'view_auth' => 10,
+                                                         'comment_insert' => 100,
+                                                         'comment_publish' => 1000))));
+
+    _radioactivity_set_decay_profiles($profiles);
+  }
+
+
+  /**
+   * Tests that radioactivity_node nodeapi works as it should, i.e., when we do node load,
+   * we don't have, e.g., missing require_onces.
+   */
+  function testNodeApi_load() {
+    // add some default stuff for node id 123
+    db_query("INSERT INTO {radioactivity} (id, class, decay_profile, energy, last_emission_timestamp) ".
+      "VALUES (%d, '%s', %d, %f, %d)",
+      123, 'node', 3, 88.5, 13131313);
+    db_query("INSERT INTO {radioactivity} (id, class, decay_profile, energy, last_emission_timestamp) ".
+      "VALUES (%d, '%s', %d, %f, %d)",
+      123, 'node', 2, 17, 31313131);
+
+    // these are to make sure that only node id 123 is considered
+    foreach (array('122', '124') as $nid) {
+      db_query("INSERT INTO {radioactivity} (id, class, decay_profile, energy, last_emission_timestamp) ".
+        "VALUES (%d, '%s', %d, %f, %d)",
+        $nid, 'node', 2, 1.23, 111);
+    }
+
+    $node=new stdClass;
+    $node->nid=123;
+    $nodeapi_ret=radioactivity_node_nodeapi($node, 'load');
+    $this->assertTrue(isset($nodeapi_ret['radioactivity']), t('radioactivity_node_nodeapi() has radioactivity field'));
+    $this->assertEqual($nodeapi_ret['radioactivity']['energy'][2], 17, t('Proper energy for profile 2'));
+    $this->assertEqual($nodeapi_ret['radioactivity']['energy'][3], 88.5, t('Proper energy for profile 3'));
+  }
+
+    /***************************************************************
+    * Test that each radioactivity_node action works as they should
+    ***************************************************************/
+
+  function testActions_anonymousView() {
+    $node=$this->drupalCreateNode(array());
+    $this->drupalGet('node/'. $node->nid);
+    $dbresult=
+      db_query("SELECT energy FROM {radioactivity} WHERE decay_profile=1 AND class='node' AND id=%d",
+                $node->nid);
+    $energy=db_result($dbresult);
+    $this->assertEqual(1, $energy);
+  }
+
+  function testActions_authenticatedView() {
+    $user=$this->drupalCreateUser();
+    $this->drupalLogin($user);
+    $node=$this->drupalCreateNode(array());
+    $this->drupalGet('node/'. $node->nid);
+    $dbresult=
+      db_query("SELECT energy FROM {radioactivity} WHERE decay_profile=1 AND class='node' AND id=%d",
+                $node->nid);
+    $energy=db_result($dbresult);
+    $this->assertEqual(11, $energy);
+  }
+
+  function setCommentSettings($name, $value, $message) {
+    variable_set($name . '_story', $value);
+    $this->assertTrue(TRUE, t($message)); // Display status message.
+  }
+
+  function setCommentPreview($required) {
+    $this->setCommentSettings('comment_preview', ($required ? '1' : '0'), 'Comment preview ' . ($required ? 'required' : 'optional') . '.');
+  }
+
+
+  function testActions_commentAutoApproval() {
+    $this->setCommentPreview(FALSE);
+    $node=$this->drupalCreateNode(array('type' => 'story'));
+    $user = $this->drupalCreateUser(array('access content', 'access comments', 'post comments'));
+
+    $this->drupalLogin($user);
+    $edit = array();
+    $edit['subject'] = 'subject';
+    $edit['comment'] = 'comment';
+    $this->drupalPost('comment/reply/'. $node->nid, $edit, t('Save'));
+    $match = array();
+
+    $dbresult=
+      db_query("SELECT energy FROM {radioactivity} WHERE decay_profile=1 AND class='node' AND id=%d",
+                $node->nid);
+    $energy=db_result($dbresult);
+    $this->assertEqual(1111, $energy, t('Check energy after comment submit (autoapproved)'));
+  }
+
+  function testActions_commentNoAutoApproval() {
+    $this->setCommentPreview(FALSE);
+    $node=$this->drupalCreateNode(array('type' => 'story'));
+    $admin = $this->drupalCreateUser(array('access comments', 'post comments', 'administer comments'));
+    $user = $this->drupalCreateUser(array('access content', 'access comments', 'post comments'));
+    $rid=-1;
+
+    // we need to remove manually permissions from role 'authenticated user'
+    // as it gets 'post comments without approval' which we specifically want not to have
+    foreach ($user->roles as $cand_rid => $rolename) {
+      if ($rolename=='authenticated user') $rid=$cand_rid;
+    }
+    db_query("UPDATE {permission} SET perm='post comments' WHERE rid=%d", $rid);
+
+
+    $this->drupalLogin($user);
+    $edit = array();
+    $edit['subject'] = 'subject';
+    $edit['comment'] = 'comment';
+    $this->drupalPost('comment/reply/'. $node->nid, $edit, t('Save'));
+    $match = array();
+
+    // Get comment ID
+    preg_match('/#comment-([^"]+)/', $this->getURL(), $match);
+    if (isset($match[1])) {
+      $cid=$match[1];
+    }
+
+    // note that drupalPost redirects back to node view page, so we get 11 energies
+    // from authenticated view, and another 100 from comment submit
+
+    $dbresult=
+      db_query("SELECT energy FROM {radioactivity} WHERE decay_profile=1 AND class='node' AND id=%d",
+                $node->nid);
+    $energy=db_result($dbresult);
+    $this->assertEqual(111, $energy, t('Check energy after comment submit (unpublished)'));
+
+    $dbresult=
+      db_query("SELECT * FROM {comments} ORDER BY cid DESC");
+    $comment=
+      db_fetch_object($dbresult);
+
+    // publish the comment
+    $this->drupalLogin($admin);
+    $edit = array();
+    $edit['comments['. $cid .']']=1;
+    $edit['operation']='publish';
+    $this->drupalPost('admin/content/comment/approval',
+                      $edit,
+                      t('Update'));
+
+    $dbresult=
+      db_query("SELECT energy FROM {radioactivity} WHERE decay_profile=1 AND class='node' AND id=%d",
+                $node->nid);
+    $energy=db_result($dbresult);
+
+    $this->assertEqual(1111, $energy, t('Check energy after publish'));
+  }
+}

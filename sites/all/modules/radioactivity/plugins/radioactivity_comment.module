@@ -1,0 +1,37 @@
+<?php
+// $Id: radioactivity_comment.module,v 1.2.4.3 2010/01/24 21:32:51 skiminki Exp $
+/*
+ * Comment support for radioactivity
+ */
+
+function radioactivity_comment_help($path, $arg) {
+
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity_comment":
+      $output = '<p>'.  t('This module provides radioactivity support for comments and respective views support. '.
+                          'This module is not useful by itself as this module provides no sources. '.
+                          'Consider radioactivity-votingapi or similar source provider for comments.') .'</p>';
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_comment_radioactivity_info() {
+  return array('targets' => array('comment' => array()),
+               'sources' => array('comment' => array()));
+}
+
+function radioactivity_comment_views_api() {
+  return array('api' => 2.000);
+}
+
+function radioactivity_comment_views_handlers() {
+  return array('handlers' =>
+               array('radioactivity_comment_views_handler_sort_left_or_inner' =>
+                     array('parent' => 'radioactivity_node_views_handler_sort_left_or_inner'),
+                     'radioactivity_node_views_handler_sort_left_or_inner' =>
+                     array('parent' => 'views_handler_sort')));
+}

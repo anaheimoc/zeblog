@@ -1,0 +1,13 @@
+<?php
+// $Id: radioactivity_debug.install,v 1.1.4.1 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Radioactivity debug install hooks
+ */
+function radioactivity_debug_install() {
+  // nothing required
+}
+
+function radioactivity_debug_uninstall() {
+  // nothing required
+}

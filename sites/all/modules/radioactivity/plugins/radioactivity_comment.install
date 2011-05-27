@@ -1,0 +1,16 @@
+<?php
+// $Id: radioactivity_comment.install,v 1.3.4.2 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * Comment radioactivity install hooks
+ */
+
+function radioactivity_comment_install() {
+  // no install actions required
+}
+
+function radioactivity_comment_uninstall() {
+  if (db_table_exists('radioactivity')) {
+    db_query("DELETE FROM {radioactivity} WHERE class='comment'");
+  }
+}

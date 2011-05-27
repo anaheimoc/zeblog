@@ -1,0 +1,271 @@
+<?php
+/*
+ * Advanced node popularity by radioactivity model
+ */
+
+require_once 'radioactivity.inc';
+
+
+function radioactivity_perm() {
+  return array(RADIOACTIVITY_PERM_ADMIN);
+}
+
+function radioactivity_help($path, $arg) {
+
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity":
+      $output = '<p>'. t('This module is the core for all radioactivity functionality.') .'</p>';
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_menu() {
+  $items = array();
+
+  $items['admin/settings/radioactivity']=
+    array('title' => 'Radioactivity',
+          'description' => 'Configure settings for radioactivity.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_general_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'type'    => MENU_NORMAL_ITEM,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  $items['admin/settings/radioactivity/general']=
+    array('title' => 'General',
+          'description' => 'Configure settings for radioactivity.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_general_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 0,
+          'type'    => MENU_DEFAULT_LOCAL_TASK,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  $items['admin/settings/radioactivity/list_profiles']=
+    array('title' => 'Decay profiles',
+          'description' => 'List of decay profiles.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_profile_list'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 1,
+          'type'    => MENU_LOCAL_TASK,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  $items['admin/settings/radioactivity/profile_new']=
+    array('title' => 'New profile',
+          'description' => 'Add new decay profile.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_profile_form', '-1'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 2,
+          'type'    => MENU_LOCAL_TASK,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  $items['admin/settings/radioactivity/edit_profile/%']=
+    array('title' => 'Edit decay profile',
+          'description' => 'Configure settings for decay profile',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_profile_form', 4),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 3,
+          'type'    => MENU_CALLBACK,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  $items['admin/settings/radioactivity/delete_profile/%']=
+    array('title' => 'Delete profile',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_admin_delete_profile_form', 4),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'type'    => MENU_CALLBACK,
+          'file'    => 'radioactivity-admin-ui.inc');
+
+  return $items;
+}
+
+function _radioactivity_set_decay_profiles($decay_profiles) {
+  // invalidate views cache (if views-module exists on this site)
+  if (function_exists('views_invalidate_cache')) {
+    views_invalidate_cache();
+  }
+
+  return variable_set("radioactivity_profiles", $decay_profiles);
+}
+
+function _radioactivity_get_decay_granularity() {
+  $granularity=(int)variable_get('radioactivity_decay_granularity', 0);
+  if ($granularity<=0) $granularity=600;
+  return $granularity;
+}
+
+function radioactivity_cron() {
+  if (radioactivity_get_memcached_enable()) {
+    radioactivity_process_memcached_entries();
+  }
+
+  $timestamp=time();
+
+  // last cron
+  $last_cron_timestamp=(int)variable_get('radioactivity_last_cron_timestamp', 0);
+  $granularity=(int)_radioactivity_get_decay_granularity();
+  $threshold_timestamp=$last_cron_timestamp-($last_cron_timestamp % $granularity) + $granularity;
+  if ($timestamp<$threshold_timestamp) return; // don't update yet
+
+  foreach (radioactivity_get_decay_profiles() as $dpid => $decay_profile) {
+    $half_life=(double)$decay_profile["half_life"];
+    $cut_off_energy=abs((double)$decay_profile["cut_off_energy"]);
+
+    // the formula is:
+    // E=E_0 * 2^(- delta_time / half_life)
+
+    db_query("UPDATE {radioactivity} SET energy=energy * pow(2, (last_emission_timestamp*1.0-%d)/%f), last_emission_timestamp=%d ".
+             "WHERE decay_profile=%d AND last_emission_timestamp<%d",
+             $timestamp, $half_life, $timestamp, $dpid, $timestamp);
+
+    if ($cut_off_energy==0) continue; // cut-off disabled
+
+    // Delete radioactivity info from objects that have less absolute energy than cut_off_energy.
+    // We do (energy<cut_off AND energy>-cut_off) instead of (abs(energy)<cut_off), as supposedly
+    // that requires less cleverness from a SQL engine to do a decent job with indexes.
+    db_query("DELETE FROM {radioactivity} WHERE decay_profile=%d AND energy < %f AND energy > %f",
+             $dpid, $cut_off_energy, -$cut_off_energy);
+  }
+  
+  variable_set('radioactivity_last_cron_timestamp', $timestamp);
+}
+
+/**
+ * Reads energies for a node. Returns array of $dpid => $energy
+ */
+function radioactivity_get_energy($oid, $oclass) {
+  $ret=array();
+
+  // remap id if necessary
+  $oid=_radioactivity_possibly_remap_id($oid, $oclass);
+  
+  $result=db_query("SELECT decay_profile, energy FROM {radioactivity} WHERE id=%d AND class='%s'", $oid, $oclass);
+
+  while ($row = db_fetch_object($result)) {
+    $ret[$row->decay_profile]=$row->energy;
+  }
+
+  return $ret;
+}
+
+function radioactivity_delete_energy($oid, $oclass) {
+  // remap id if necessary
+  $oid=_radioactivity_possibly_remap_id($oid, $oclass);
+  db_query("DELETE FROM {radioactivity} WHERE id=%d AND class='%s'", $oid, $oclass);
+  return TRUE;
+}
+
+function _radioactivity_get_memcached_availability_string($status) {
+  $t = get_t();
+  switch ($status) {
+    case RADIOACTIVITY_MEMCACHE_OK:
+      return $t('Available');
+
+    case RADIOACTIVITY_MEMCACHE_NO_BIN:
+      return $t('Memcached unreachable for bin %s', array('%s' => 'radioactivity'));
+      
+    case RADIOACTIVITY_MEMCACHE_NO_MODULE:
+      return $t('Memcache not available');
+
+    default:
+      return $t('Bad status code %s', array('%s' => $status));
+  }
+}
+
+
+function radioactivity_requirements($phase) {
+  $requirements=array();
+  $t = get_t();
+
+  switch ($phase) {
+    case 'runtime':
+      $mc_status=radioactivity_determine_memcached_availability();
+      $requirements['radioactivity_memcache'] =
+        array('title' => $t('Radioactivity memcache acceleration'),
+              'value' => _radioactivity_get_memcached_availability_string($mc_status),
+              'severity' => $mc_status > 0? REQUIREMENT_OK : REQUIREMENT_INFO);
+
+      if ($mc_status>0) {
+        // additional checks, as memcache is available
+        $bins=variable_get('memcache_bins', array());
+        $custom_bin=isset($bins['radioactivity']);
+        $requirements['radioactivity_memcache_bin'] =
+          array('title' => $t('Radioactivity memcache bin %r', array('%r' => 'radioactivity')),
+                'value' => $custom_bin? $t('Configured') : $t('Not configured, using default bin'),
+                'severity' => $custom_bin? REQUIREMENT_OK : REQUIREMENT_INFO);
+      }
+      break;
+  }
+  return $requirements;
+}
+
+function radioactivity_group_memcache_entries($start_entry_id, $stop_entry_id) {
+  $combined=array();
+
+  while ($start_entry_id < $stop_entry_id) {
+    $entry=dmemcache_get('entry-'. $start_entry_id, 'radioactivity');
+
+    ++$start_entry_id;
+
+    if (!$entry) continue; // probably expired, try next
+
+    switch ($entry['type']) {
+      case 'add-energy':
+        ++$combined[$entry['oid']][$entry['oclass']][$entry['source']];
+        break;
+
+      default:
+        // we should never be here, but...
+    }
+  }
+
+  return $combined;
+}
+
+function radioactivity_memcache_get_unprocessed_range() {
+  // get newest memcache entry
+  $start_entry_id=dmemcache_get('entry_id_processed', 'radioactivity');
+  $stop_entry_id=dmemcache_get('entry_id_seq', 'radioactivity');
+
+  if ($stop_entry_id===FALSE) {
+    $stop_entry_id=0;
+  }
+  else {
+    ++$stop_entry_id;
+  }
+
+  if ($start_entry_id===FALSE) {
+    $start_entry_id=$stop_entry_id;
+  }
+
+  // check if entry_id_top has gotten flushed
+  if ($stop_entry_id<$start_entry_id) $stop_entry_id=$start_entry_id;
+
+  return array($start_entry_id, $stop_entry_id);
+}
+
+function radioactivity_process_memcached_entries() {
+
+  list($start_entry_id, $stop_entry_id)=
+    radioactivity_memcache_get_unprocessed_range();
+
+  $combined=radioactivity_group_memcache_entries($start_entry_id, $stop_entry_id);
+
+  // execute combined
+  foreach ($combined as $oid => $rest1) {
+    foreach ($rest1 as $oclass => $rest2) {
+      foreach ($rest2 as $source => $times) {
+        _radioactivity_add_energy_internal($oid, $oclass, $source, $times);
+      }
+    }
+  }
+
+  dmemcache_set('entry_id_processed', $stop_entry_id, 0, 'radioactivity');
+}

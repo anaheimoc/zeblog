@@ -1,0 +1,42 @@
+<?php
+// $Id: radioactivity_votingapi.module,v 1.3.4.3 2010/01/24 21:32:51 skiminki Exp $
+/**
+ * @file
+ * VotingAPI support for radioactivity
+ */
+
+function radioactivity_votingapi_help($path, $arg) {
+
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity_votingapi":
+      $output = '<p>'.  t("VotingAPI support for radioactivity. Provides <em>most voted</em> metrics ".
+                          "for nodes and comments.") .'</p>';
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_votingapi_radioactivity_info() {
+  return array('sources' => array('node' =>
+                                  array('vote' => array('title_placeholder' => 'vote')),
+                                  'comment' =>
+                                  array('vote' => array('title_placeholder' => 'vote'))));
+}
+
+function radioactivity_votingapi_votingapi_insert($votes) {
+  require_once drupal_get_path('module', 'radioactivity') .'/radioactivity.inc';
+
+  foreach ($votes as $vote) {
+    $oclass=$vote['content_type'];
+    $oid=$vote['content_id'];
+
+    switch ($oclass) {
+      case 'node':
+      case 'comment':
+        radioactivity_add_energy($oid, $oclass, 'vote');
+    }
+  }
+}

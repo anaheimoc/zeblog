@@ -1,0 +1,83 @@
+<?php
+// $Id: radioactivity_node.install,v 1.3.4.3 2010/06/21 11:44:49 skiminki Exp $
+/**
+ * @file
+ * Node radioactivity db schema and install hooks
+ */
+
+function radioactivity_node_schema() {
+
+
+  $schema['radioactivity_node_clicks']=
+    array('description' => t('The table that contains node clicks for abuse control purposes. Only used if abuse control is enabled'),
+          'fields' =>
+          array('nid' => array('type' => 'int',
+                               'unsigned' => TRUE,
+                               'not null' => TRUE,
+                               'default' => 0,
+                               'description' => t('The node identifier')),
+                'sid' => array('type' => 'varchar',
+                               'length' => 64,
+                               'not null' => TRUE,
+                               'default' => '',
+                               'description' => t('The session id.')),
+                'hostname' => array('type' => 'varchar',
+                                    'length' => 128,
+                                    'not null' => TRUE,
+                                    'default' => '',
+                                    'description' => t('The remote address. Used in logic, when the current user is unauthenticated.')),
+                'click_timestamp' => array('type' => 'int',
+                                           'not null' => TRUE,
+                                           'unsigned' => TRUE,
+                                           'default' => 0,
+                                           'description' => t('The timestamp of the node view'))),
+          'indexes' => array('radioactivity_node_ix_nid_sid' => array('nid', 'sid'),
+                             'radioactivity_node_ix_nid_hostname' => array('nid', 'hostname'))
+    );
+  return $schema;
+
+  switch ($GLOBALS['db_type']) {
+    case 'mysql':
+    case 'mysqli':
+      db_query("CREATE TABLE {radioactivity_node_clicks} (
+                 nid int NOT NULL,
+                 uid int NOT NULL,
+                 remote_address VARCHAR(31) NOT NULL,
+                 click_timestamp int NOT NULL
+        ) /*!40100 DEFAULT CHARACTER SET utf8 */;");
+
+      db_query("CREATE INDEX {radioactivity_node_clicks_ix_nid_uid}
+                 ON {radioactivity_node_clicks} (nid, uid);");
+      db_query("CREATE INDEX {radioactivity_node_clicks_ix_nid_ip}
+                 ON {radioactivity_node_clicks} (nid, remote_address);");
+      break;
+    case 'pgsql':
+      db_query("CREATE TABLE {radioactivity_node_clicks} (
+                 nid int NOT NULL,
+                 uid int NOT NULL,
+                 remote_address VARCHAR(31) NOT NULL,
+                 click_timestamp int NOT NULL
+        );");
+
+      db_query("CREATE INDEX {radioactivity_node_clicks}_ix_nid_uid
+                 ON {radioactivity_node_clicks} (nid, uid);");
+      db_query("CREATE INDEX {radioactivity_node_clicks}_ix_nid_ip
+                 ON {radioactivity_node_clicks} (nid, remote_address);");
+      
+      break;
+  }
+}
+
+function radioactivity_node_install() {
+  drupal_install_schema('radioactivity_node');
+
+}
+
+function radioactivity_node_uninstall() {
+  drupal_uninstall_schema('radioactivity_node');
+  variable_del('radioactivity_node_click_duration');
+  variable_del('radioactivity_node_anon_hook_mode');
+  if (db_table_exists('radioactivity')) {
+    db_query("DELETE FROM {radioactivity} WHERE class='node'");
+  }
+}

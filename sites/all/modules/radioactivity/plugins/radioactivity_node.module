@@ -1,0 +1,303 @@
+<?php
+// $Id: radioactivity_node.module,v 1.4.4.9 2010/06/22 13:17:29 skiminki Exp $
+/**
+ * @file
+ * Node radioactivity
+ */
+
+function radioactivity_node_perm() {
+  return array();
+}
+
+function radioactivity_node_help($path, $arg) {
+
+  $output = '';
+
+  switch ($path) {
+    case "admin/help#radioactivity_node":
+      $output = '<p>'.  t('This module makes nodes radioactive. See the <em>energy settings</em> in radioactivity profiles. '.
+                          'This module also provides views support for node energy and simple abuse control.') . '</p>';
+      break;
+  }
+
+  return $output;
+}
+
+function radioactivity_node_radioactivity_info() {
+  // Get node types as node subclasses.
+  $subclasses=array();
+
+  // This code purposefully doesn't use node_get_types and doesn't
+  // use db_rewrite_sql so it works on cached pages with i18n.
+  $types = db_query('SELECT type FROM {node_type}');
+  while ($node_type = db_fetch_object($types)) {
+    $subclasses[$node_type->type]=array();
+  }
+  return array('targets' => array('node' =>
+                                  array('subclass_resolver' => '_radioactivity_node_resolve_node_type',
+                                        'subclasses' => $subclasses)),
+               'sources' => array('node' =>
+                                  array('view' => array('title_placeholder' => 'node view',
+                                                        'description' => 'Energy for node page view request by any client.'),
+                                        'view_auth' => array('title_placeholder' => 'node view by authenticated user',
+                                                             'description' => 'Energy for node page view request by authenticated client. '.
+                                                             'Note that this is in addition to <em>node view</em>.'),
+                                        'node_create' => array('title_placeholder' => 'submitted node',
+                                                             'description' => 'Initial energy for submitted node.'),
+                                        'comment_insert' => array('title_placeholder' => 'submitted comment',
+                                                                  'description' => 'Energy for submitted comment.'),
+                                        'comment_publish' => array('title_placeholder' => 'published comment',
+                                                                   'description' => 'Energy for published comment. Added also for submitted '.
+                                                                   'comment when the user has <em>post comments without approval</em> '.
+                                                                   'access.'))));
+}
+
+function radioactivity_node_menu() {
+  $items = array();
+  $items['admin/settings/radioactivity/node_radioactivity']=
+    array('title' => 'Node settings',
+          'description' => 'Node-specific radioactivity settings.',
+          'page callback'  => 'drupal_get_form',
+          'page arguments'  => array('radioactivity_node_admin_form'),
+          'access arguments'  => array(RADIOACTIVITY_PERM_ADMIN),
+          'weight'  => 10,
+          'type'    => MENU_LOCAL_TASK,
+          'file'    => 'radioactivity_node-admin-ui.inc');
+  $items['radioactivity_node.php'] = array(
+    'page callback' => 'radioactivity_node_ajax_callback',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content')
+  );
+  return $items;
+}
+
+function _radioactivity_node_get_click_duration() {
+  $click_duration=(int)variable_get('radioactivity_node_click_duration', 0);
+  if ($click_duration<=0) $click_duration=0;
+  return $click_duration;
+}
+
+
+function _radioactivity_node_resolve_node_type($nid, $oclass) {
+  if (!isset($cached_types[$nid])) {
+    $type = db_result(db_query("SELECT type FROM {node} WHERE nid = %d", $nid));
+    $cached_types[$nid]=$type;
+  }
+
+  return $cached_types[$nid];
+}
+
+function radioactivity_node_cron() {
+  $timestamp=time();
+  // delete old enough clicks that gave energy to nodes
+  db_query("DELETE FROM {radioactivity_node_clicks} WHERE click_timestamp < %d", $timestamp-_radioactivity_node_get_click_duration());
+}
+
+
+/**
+ * Gives energy to node, if abuse control is passed.
+ */
+function radioactivity_node_user_node_view($nid) {
+  global $user;
+
+  if (_radioactivity_node_get_click_duration()>0) {
+    $nid=(int)$nid;
+    $uid=$user->uid;
+    $sid=session_id();
+    $remote_address=$_SERVER['REMOTE_ADDR'];
+
+    // check if click is found
+    if ($user->uid>0) {
+      // not anonymous: use nid/sid
+      $result=db_query("SELECT count(*) FROM {radioactivity_node_clicks} WHERE nid=%d AND sid='%s'",
+                       $nid, $sid);
+    }
+    else {
+      // anonymous, use nid/sid or nid/hostname
+      $result=db_query("SELECT count(*) FROM {radioactivity_node_clicks} WHERE nid=%d AND (sid='%s' OR hostname='%s')",
+                       $nid, $sid, $remote_address);
+    }
+    $passed=(0 == db_result($result));
+    if ($passed) {
+      // ok, record click
+      db_query("INSERT INTO {radioactivity_node_clicks} (nid, sid, hostname, click_timestamp) ".
+               "VALUES (%d, '%s', '%s', %d)", $nid, $sid, $remote_address, time());
+    }
+    else {
+      // don't add energy, because click was found
+      return FALSE;
+    }
+  }
+
+  // ok, abuse control passed
+  if (!function_exists('radioactivity_add_energy')) {
+    // load radioactivity.inc, because radioactivity_add_energy does not exist
+
+    $radioactivity_inc = substr(drupal_get_filename('module', 'radioactivity'), 0, -6) .'inc';
+    require_once $radioactivity_inc;
+  }
+
+  radioactivity_add_energy($nid, 'node', 'view');
+  if ($user->uid>0) {
+    radioactivity_add_energy($nid, 'node', 'view_auth');
+  }
+  return TRUE;
+}
+
+function radioactivity_node_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  switch ($op) {
+    case 'insert':
+      radioactivity_add_energy($node->nid, 'node', 'node_create');
+      break;
+
+    case 'delete':
+      radioactivity_delete_energy($node->nid, 'node');
+      break;
+
+    case 'load':
+      return array('radioactivity' => radioactivity_get_radioactivity_array($node->nid, 'node'));
+  }
+}
+
+function radioactivity_node_comment(&$a1, $op) {
+  switch ($op) {
+    case 'insert':
+      $nid=$a1['nid'];
+      radioactivity_add_energy($nid, 'node', 'comment_insert');
+      if ($a1['status']==COMMENT_PUBLISHED) radioactivity_add_energy($nid, 'node', 'comment_publish');
+      break;
+    case 'publish':
+      $nid=$a1->nid;
+      radioactivity_add_energy($nid, 'node', 'comment_publish');
+      break;
+  }
+}
+
+function radioactivity_node_exit() {
+  drupal_bootstrap(DRUPAL_BOOTSTRAP_PATH);
+
+  global $user;
+
+  // We don't use this hook for anonymous users if hook_mode is not 'normal'. In other modes,
+  // other hooks are used, e.g., AJAX-hook for statically cached pages.
+  if ($user->uid == 0 && variable_get('radioactivity_node_anon_hook_mode', 'normal') != 'normal') return;
+
+  // we're only interested in full page views
+  if ((arg(0) == 'node') && is_numeric(arg(1)) && arg(2) == '') {
+    radioactivity_node_user_node_view(arg(1));
+  }
+}
+
+function radioactivity_node_views_api() {
+  return array('api' => 2.000);
+}
+
+function radioactivity_node_views_handlers() {
+  return array('handlers' =>
+               array('radioactivity_node_views_handler_sort_left_or_inner' =>
+                     array('parent' => 'views_handler_sort')));
+}
+
+/**
+ * Implementation of hook_block().
+ *
+ * @see boost_block()
+ */
+function radioactivity_node_block($op = 'list', $delta = 0, $edit = array()) {
+  global $user;
+
+  switch ($op) {
+    case 'list':
+      return array(
+        0 => array(
+          'info'   => t('Radioactivity Node: AJAX update'),
+          'cache'  => BLOCK_NO_CACHE,
+        ),
+      );
+
+    case 'view':
+      switch ($delta) {
+        case 0:
+          if (!( strpos($_SERVER['SCRIPT_FILENAME'], 'index.php') === FALSE
+              || variable_get('site_offline', 0)
+              || ($_SERVER['REQUEST_METHOD'] != 'GET' && $_SERVER['REQUEST_METHOD'] != 'HEAD')
+              || $_SERVER['SERVER_SOFTWARE'] === 'PHP CLI'
+              || isset($_GET['nocache'])
+              || !empty($user->uid)
+              || variable_get('radioactivity_node_anon_hook_mode', '') != 'ajax'
+              )) {
+            $block = array();
+            $block['subject'] = '';
+            $block['content'] = '<div id="node-radioactivity-update"></div>' . radioactivity_node_ajax_code();
+            return $block;
+          }
+          break;
+      }
+  }
+}
+
+/**
+ * AJAX Menu Callback.
+ */
+function radioactivity_node_ajax_callback() {
+  if (!isset($_GET['nid'])) {
+    return drupal_not_found();
+  }
+  $nid = isset($_GET['nid']) ? $_GET['nid'] : NULL;
+
+  if (!isset($_GET['js'])) {
+    header('Content-type: image/gif');
+    header('Expires: Sun, 19 Nov 1978 05:00:00 GMT');
+    header('Cache-Control: no-cache');
+    header('Cache-Control: must-revalidate');
+    header('Content-Length: 0');
+    header('Connection: close');
+  }
+
+  global $conf;
+  $conf['cache']=CACHE_DISABLED;
+
+  // Silent ignore if the mode is not ajax. Also, check that nid is numeric and >0.
+  if (variable_get('radioactivity_node_anon_hook_mode', '') == 'ajax' &&
+      is_numeric($nid) && $nid) {
+    radioactivity_node_user_node_view($nid);
+  }
+}
+
+/**
+ * Generate js/html for radioactivity counter.
+ *
+ * NOTE HTML code could be added to the $buffer directly. Would prevent 2x
+ * counts on first view. Would be hard to do though.
+ *
+ * @see boost_stats_generate()
+ */
+function radioactivity_node_ajax_code() {
+  global $base_path;
+
+  // is node & node count enabled.
+  if (arg(0) == 'node' && is_numeric(arg(1)) && arg(2) == '') {
+    $nid = arg(1);
+  }
+  else {
+    $nid = 'NULL';
+  }
+
+  $page_js = array(
+    'radioactivity_node' => array(
+      'nid' => $nid
+    )
+  );
+  $site_js = <<<ETO
+$.get(Drupal.settings.basePath + "radioactivity_node.php", {nocache: "1", js: "1", nid: Drupal.settings.radioactivity_node.nid}, function(response) {});
+ETO;
+
+  // page specific variables
+  drupal_add_js($page_js, 'setting', 'header');
+  // site-wide code
+  drupal_add_js($site_js, 'inline', 'footer');
+  // no script code
+  $page_ns = '<noscript><div style="display:inline;"><img src="' . $base_path . 'radioactivity_node.php' . '?nocache=1' . '&amp;nid='. $nid .'" alt="" /></div></noscript>';
+
+  return $page_ns;
+}
