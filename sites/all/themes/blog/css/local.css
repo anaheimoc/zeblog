@@ -17,6 +17,13 @@ font-weight: normal;
 text-transform: capitalize;
 }
 
+/* BLOG SIDEBAR CSS
+************************************ */
+
+.view.view-blog.view-display-id-block_1 .views-field-title,
+.view.view-blog.view-display-id-block_2 .views-field-title{
+margin: 5px 0;
+}
 
 /* BLOG POST IMAGE GALLERY
 ************************************ */
